@@ -45,6 +45,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static java.util.Collections.singleton;
 
@@ -55,6 +56,8 @@ public class ProcessorStateManager {
     public static final String STATE_CHANGELOG_TOPIC_SUFFIX = "-changelog";
     public static final String CHECKPOINT_FILE_NAME = ".checkpoint";
     public static final String LOCK_FILE_NAME = ".lock";
+
+    private static Map<File,FileChannel> channels = new ConcurrentHashMap<>();
 
     private final String applicationId;
     private final int defaultPartition;
@@ -144,7 +147,15 @@ public class ProcessorStateManager {
 
     private static FileLock lockStateDirectory(File stateDir, long timeout) throws IOException {
         File lockFile = new File(stateDir, ProcessorStateManager.LOCK_FILE_NAME);
-        FileChannel channel = new RandomAccessFile(lockFile, "rw").getChannel();
+        FileChannel channel = null;
+        synchronized (channels) {
+            channel = channels.get(lockFile);
+            if (channel == null) {
+                channel = new RandomAccessFile(lockFile, "rw").getChannel();
+                channels.put(lockFile, channel);
+                log.info("Creating new channel: {} for file: {}", channel, lockFile);
+            }
+        }
 
         FileLock lock = lockStateDirectory(channel);
         long time = System.currentTimeMillis();

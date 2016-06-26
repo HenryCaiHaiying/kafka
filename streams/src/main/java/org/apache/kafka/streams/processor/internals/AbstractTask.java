@@ -88,7 +88,7 @@ public abstract class AbstractTask {
                 store.init(this.processorContext, store);
             }
         } catch (RuntimeException ex) {
-            log.warn("Unexpected ex: {}, closing task", ex.getMessage());
+            log.warn("Unexpected ex: {}, closing task", ex);
             close();
             throw ex;
         }
