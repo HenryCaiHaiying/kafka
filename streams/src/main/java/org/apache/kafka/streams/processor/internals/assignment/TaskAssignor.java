@@ -25,7 +25,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
@@ -41,8 +40,10 @@ public class TaskAssignor<C, T extends Comparable<T>> {
         }
 
         TaskAssignor<C, T> assignor = new TaskAssignor<>(states, tasks, seed);
-        log.info("Assign: sameTopology: {}, states: {}, tasks: {}, replicas: {}",
-            assignor.sameTopology, states, tasks, numStandbyReplicas);
+        log.info("Assigning tasks to clients: {}, prevAssignmentBalanced: {}, " +
+            "prevClientsUnchangeed: {}, tasks: {}, replicas: {}",
+            states, assignor.prevAssignmentBalanced, assignor.prevClientsUnchanged,
+            tasks, numStandbyReplicas);
 
         assignor.assignTasks();
         if (numStandbyReplicas > 0)
@@ -57,7 +58,8 @@ public class TaskAssignor<C, T extends Comparable<T>> {
     private final Set<TaskPair<T>> taskPairs;
     private final int maxNumTaskPairs;
     private final ArrayList<T> tasks;
-    private boolean sameTopology = true;
+    private boolean prevAssignmentBalanced = true;
+    private boolean prevClientsUnchanged = true;
 
     private TaskAssignor(Map<C, ClientState<T>> states, Set<T> tasks, long randomSeed) {
         this.rand = new Random(randomSeed);
@@ -67,21 +69,18 @@ public class TaskAssignor<C, T extends Comparable<T>> {
         for (Map.Entry<C, ClientState<T>> entry : states.entrySet()) {
             this.states.put(entry.getKey(), entry.getValue().copy());
             Set<T> oldTasks = entry.getValue().prevAssignedTasks;
-            if (oldTasks.size() > 2 * avgNumTasks || oldTasks.size() < avgNumTasks / 2) {
-                sameTopology = false;
-            } else {
-                for (T task : oldTasks) {
-                    if (existingTasks.contains(task)) {
-                        sameTopology = false;
-                        break;
-                    }
-                }
+            // make sure the previous assignment is balanced
+            prevAssignmentBalanced = prevAssignmentBalanced &&
+                oldTasks.size() < 2 * avgNumTasks && oldTasks.size() > avgNumTasks / 2;
+            for (T task : oldTasks) {
+                // Make sure there is no duplicates
+                prevClientsUnchanged = prevClientsUnchanged && !existingTasks.contains(task);
             }
             existingTasks.addAll(oldTasks);
         }
-        if (sameTopology && !existingTasks.equals(tasks)) {
-            sameTopology = false;
-        }
+        // Make sure the existing assignment didn't miss out any task
+        prevClientsUnchanged = prevClientsUnchanged && existingTasks.equals(tasks);
+
         this.tasks = new ArrayList<>(tasks);
 
         int numTasks = tasks.size();
@@ -135,7 +134,8 @@ public class TaskAssignor<C, T extends Comparable<T>> {
         double candidateAdditionCost = 0d;
 
         for (ClientState<T> state : states.values()) {
-            if (sameTopology && state.prevAssignedTasks.contains(task)) {
+            if (prevAssignmentBalanced && prevClientsUnchanged &&
+                state.prevAssignedTasks.contains(task)) {
                 return state;
             }
             if (!state.assignedTasks.contains(task)) {
