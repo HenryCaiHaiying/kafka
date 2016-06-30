@@ -33,10 +33,10 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
-import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -56,13 +56,10 @@ public class ProcessorStateManager {
     public static final String CHECKPOINT_FILE_NAME = ".checkpoint";
     public static final String LOCK_FILE_NAME = ".lock";
 
-    private static final Map<File, FileChannel> CHANNELS = new HashMap<>();
-
     private final String applicationId;
     private final int defaultPartition;
     private final Map<String, TopicPartition> partitionForTopic;
     private final File baseDir;
-    private final File directoryLockFile;
     private final FileLock directoryLock;
     private final Map<String, StateStore> stores;
     private final Set<String> loggingEnabled;
@@ -100,7 +97,6 @@ public class ProcessorStateManager {
         createStateDirectory(baseDir);
 
         // try to acquire the exclusive lock on the state directory
-        directoryLockFile = new File(baseDir, ProcessorStateManager.LOCK_FILE_NAME);
         directoryLock = lockStateDirectory(baseDir, 30 * 1000L);
         if (directoryLock == null) {
             throw new IOException(
@@ -148,16 +144,7 @@ public class ProcessorStateManager {
 
     private static FileLock lockStateDirectory(File stateDir, long timeout) throws IOException {
         File lockFile = new File(stateDir, ProcessorStateManager.LOCK_FILE_NAME);
-        FileChannel channel = null;
-        synchronized (CHANNELS) {
-            channel = CHANNELS.get(lockFile);
-            if (channel == null) {
-                channel = FileChannel.open(lockFile.toPath(),
-                    StandardOpenOption.READ, StandardOpenOption.WRITE);
-                CHANNELS.put(lockFile, channel);
-                log.info("Creating new channel: {} for file: {}", channel, lockFile);
-            }
-        }
+        FileChannel channel = new RandomAccessFile(lockFile, "rw").getChannel();
 
         FileLock lock = lockStateDirectory(channel);
         long time = System.currentTimeMillis();
@@ -171,6 +158,12 @@ public class ProcessorStateManager {
             }
             sleep = sleep * 2;
             lock = lockStateDirectory(channel);
+        }
+
+        // TODO: closing the channel here risks releasing all locks on the file
+        // see {@link https://issues.apache.org/jira/browse/KAFKA-3812}
+        if (lock == null) {
+            channel.close();
         }
         return lock;
     }
@@ -476,11 +469,8 @@ public class ProcessorStateManager {
         } finally {
             // release the state directory directoryLock
             log.info("Release lock: {}", baseDir.getCanonicalPath());
-            synchronized (CHANNELS) {
-                directoryLock.release();
-                directoryLock.channel().close();
-                CHANNELS.remove(directoryLockFile);
-            }
+            directoryLock.release();
+            directoryLock.channel().close();
         }
     }
 

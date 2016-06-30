@@ -552,6 +552,7 @@ public class StreamThread extends Thread {
                                 if (directoryLock != null) {
                                     try {
                                         directoryLock.release();
+                                        directoryLock.channel().close();
                                     } catch (IOException e) {
                                         log.error("Failed to release the state directory lock");
                                     }
