@@ -56,8 +56,8 @@ public final class ProducerRecord<K, V> {
     public ProducerRecord(String topic, Integer partition, Long timestamp, K key, V value) {
         if (topic == null)
             throw new IllegalArgumentException("Topic cannot be null");
-        if (timestamp != null && timestamp < 0)
-            throw new IllegalArgumentException("Invalid timestamp " + timestamp);
+/*        if (timestamp != null && timestamp < 0)
+            throw new IllegalArgumentException("Invalid timestamp " + timestamp);*/
         this.topic = topic;
         this.partition = partition;
         this.key = key;
